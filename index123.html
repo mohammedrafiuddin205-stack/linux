@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AAYZAN // PRESTIGE_EYE_GUARD</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+        
+        :root {
+            --neon-green: #00ff41;
+            --neon-red: #ff003c;
+            --glass-bg: rgba(0, 10, 0, 0.85);
+        }
+
+        * { box-sizing: border-box; transition: background 0.3s ease; }
+
+        body {
+            background-color: #000;
+            background-image: 
+                linear-gradient(rgba(0, 255, 65, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 65, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
+            color: var(--neon-green);
+            font-family: 'Share Tech Mono', monospace;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Screen Glow Effect */
+        body::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: radial-gradient(circle, transparent 50%, rgba(0,0,0,0.8) 100%);
+            pointer-events: none;
+        }
+
+        #start-screen {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .deploy-btn {
+            background: transparent;
+            color: var(--neon-green);
+            border: 2px solid var(--neon-green);
+            padding: 20px 50px;
+            font-size: 1.8rem;
+            font-family: inherit;
+            cursor: pointer;
+            box-shadow: 0 0 15px var(--neon-green);
+            text-transform: uppercase;
+            letter-spacing: 5px;
+        }
+
+        .deploy-btn:hover {
+            background: var(--neon-green);
+            color: #000;
+            box-shadow: 0 0 40px var(--neon-green);
+        }
+
+        .main-frame {
+            width: 95vw;
+            max-width: 800px;
+            border: 1px solid rgba(0, 255, 65, 0.3);
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,1);
+        }
+
+        .video-wrap {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #output_canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            filter: contrast(1.1) brightness(1.1) sepia(0.2) hue-rotate(80deg);
+        }
+
+        .alert-overlay {
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(255, 0, 60, 0.15);
+            z-index: 10;
+            border: 5px solid var(--neon-red);
+            pointer-events: none;
+        }
+
+        .alert-text {
+            color: var(--neon-red);
+            font-size: clamp(1.8rem, 10vw, 4rem);
+            font-weight: bold;
+            text-shadow: 0 0 20px var(--neon-red);
+            text-align: center;
+            animation: shake 0.1s infinite;
+        }
+
+        @keyframes shake {
+            0% { transform: translate(1px, 1px); }
+            50% { transform: translate(-1px, -2px); }
+            100% { transform: translate(1px, 1px); }
+        }
+
+        .hud-bar {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 25px;
+            background: rgba(0,0,0,0.5);
+            border-top: 1px solid rgba(0, 255, 65, 0.2);
+            font-size: 1.1rem;
+        }
+
+        .timer-val { color: #fff; text-shadow: 0 0 5px #fff; }
+
+        @media (max-width: 600px) {
+            .video-wrap { aspect-ratio: 3/4; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="start-screen">
+        <h1 style="letter-spacing: 10px; margin-bottom: 40px;">AAYZAN_CORE_V7</h1>
+        <button class="deploy-btn" onclick="startSystem()">INITIALIZE</button>
+    </div>
+
+    <div class="main-frame">
+        <div class="video-wrap">
+            <div id="alert-ui" class="alert-overlay">
+                <div class="alert-text">ALERT_DETECTION<br>UTH BKL KAAM KARR</div>
+            </div>
+            <video id="input_video" style="display:none" playsinline muted></video>
+            <canvas id="output_canvas"></canvas>
+        </div>
+        
+        <div class="hud-bar">
+            <span>SIGNAL: <span id="sys-status">SEARCHING...</span></span>
+            <span>DOWNTIME: <span id="timer" class="timer-val">0.0</span>S</span>
+        </div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const alertUI = document.getElementById('alert-ui');
+        const timerSpan = document.getElementById('timer');
+        const statusSpan = document.getElementById('sys-status');
+
+        let closedStartTime = null;
+        let isSystemActive = false;
+        let alertTimeout = null;
+
+        function speak() {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance("WAKE UP AAYZAN! UTH BKL KAAM KARR");
+            utterance.rate = 1.6;
+            utterance.pitch = 0.9;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function onResults(results) {
+            if (!isSystemActive) return;
+
+            canvasElement.width = canvasElement.clientWidth;
+            canvasElement.height = canvasElement.clientHeight;
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                const leftEye = landmarks[145].y - landmarks[159].y;
+                const rightEye = landmarks[374].y - landmarks[386].y;
+                const isClosed = (leftEye + rightEye) / 2 < 0.0165;
+
+                const color = isClosed ? "#ff003c" : "#00ff41";
+
+                // Draw Smooth Hacker Boxes
+                [ [33, 133, 159, 145], [362, 263, 386, 374] ].forEach(indices => {
+                    const xs = indices.map(i => landmarks[i].x * canvasElement.width);
+                    const ys = indices.map(i => landmarks[i].y * canvasElement.height);
+                    const minX = Math.min(...xs), maxX = Math.max(...xs);
+                    const minY = Math.min(...ys), maxY = Math.max(...ys);
+                    
+                    canvasCtx.strokeStyle = color;
+                    canvasCtx.lineWidth = 3;
+                    canvasCtx.strokeRect(minX - 15, minY - 20, (maxX - minX) + 30, (maxY - minY) + 40);
+                    
+                    // Corner accents
+                    canvasCtx.fillStyle = color;
+                    canvasCtx.fillRect(minX - 15, minY - 20, 10, 3);
+                    canvasCtx.fillRect(minX - 15, minY - 20, 3, 10);
+                });
+
+                if (isClosed) {
+                    if (!closedStartTime) closedStartTime = Date.now();
+                    const seconds = (Date.now() - closedStartTime) / 1000;
+                    timerSpan.innerText = seconds.toFixed(1);
+
+                    if (seconds >= 2.0) {
+                        if (alertTimeout) clearTimeout(alertTimeout);
+                        alertUI.style.display = "flex";
+                        statusSpan.innerText = "!! CRITICAL !!";
+                        statusSpan.style.color = "var(--neon-red)";
+                        speak();
+                    }
+                } else {
+                    closedStartTime = null;
+                    timerSpan.innerText = "0.0";
+                    statusSpan.innerText = "SECURE";
+                    statusSpan.style.color = "var(--neon-green)";
+                    
+                    // The "Half-Second" Persistence logic
+                    if (alertUI.style.display === "flex") {
+                        if (!alertTimeout) {
+                            alertTimeout = setTimeout(() => {
+                                alertUI.style.display = "none";
+                                alertTimeout = null;
+                            }, 500); // 0.5 seconds delay after opening eyes
+                        }
+                    }
+                }
+            }
+            canvasCtx.restore();
+        }
+
+        async function startSystem() {
+            document.getElementById('start-screen').style.display = 'none';
+            isSystemActive = true;
+
+            const faceMesh = new FaceMesh({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+            });
+
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
+            });
+
+            faceMesh.onResults(onResults);
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => { await faceMesh.send({image: videoElement}); },
+                width: 1280, height: 720
+            });
+            camera.start();
+        }
+    </script>
+</body>
+</html>
